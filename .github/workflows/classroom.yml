@@ -35,34 +35,15 @@ jobs:
         pip install pytest
         pytest tests/ --verbose > pytest_results.txt || echo "TESTS_FAILED=true" >> $GITHUB_ENV
         
-    - name: Create feedback
-      run: |
-        echo "### Python Code Check Results 📝" > feedback.md
-        echo "" >> feedback.md
-        echo "#### Style Check" >> feedback.md
-        if [[ "${{ env.PYLINT_SCORE }}" != "" ]]; then
-          echo "Your code style score: ${{ env.PYLINT_SCORE }}/10.0" >> feedback.md
-          if (( $(echo "${{ env.PYLINT_SCORE }} >= 8.0" | bc -l) )); then
-            echo "✨ Great job on code style!" >> feedback.md
-          else
-            echo "💡 There's room for style improvements. Check the Actions tab for details." >> feedback.md
-          fi
-        else
-          echo "❌ Style check encountered an error" >> feedback.md
-        fi
-        echo "" >> feedback.md
-        if [ -d "tests" ]; then
-          echo "#### Unit Tests" >> feedback.md
-          if [ -f pytest_results.txt ]; then
-            if [ "${TESTS_FAILED}" == "true" ]; then
-              echo "❌ Some tests are not passing. Check the Actions tab for details." >> feedback.md
-            else
-              echo "✅ All tests passed! Great work!" >> feedback.md
-            fi
-          fi
-        fi
-        
     - name: Create commit comment
       uses: peter-evans/commit-comment@v2
       with:
-        body-file: feedback.md
+        body: |
+          ### Python Code Check Results 📝
+
+          #### Style Check
+          Your code style score: ${{ env.PYLINT_SCORE }}/10.0
+          ${{ env.PYLINT_SCORE >= 8.0 && '✨ Great job on code style!' || '💡 There''s room for style improvements. Check the Actions tab for details.' }}
+
+          ${{ hashFiles('tests/*') && '#### Unit Tests' || '' }}
+          ${{ env.TESTS_FAILED == 'true' && '❌ Some tests are not passing. Check the Actions tab for details.' || (hashFiles('tests/*') && '✅ All tests passed! Great work!' || '') }}
