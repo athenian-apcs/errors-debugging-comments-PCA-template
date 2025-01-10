@@ -35,15 +35,40 @@ jobs:
         pip install pytest
         pytest tests/ --verbose > pytest_results.txt || echo "TESTS_FAILED=true" >> $GITHUB_ENV
         
-    - name: Create commit comment
-      uses: peter-evans/commit-comment@v2
-      with:
-        body: |
-          ### Python Code Check Results 📝
+    - name: Create comment
+      run: |
+        COMMENT="### Python Code Check Results 📝
 
-          #### Style Check
-          Your code style score: ${{ env.PYLINT_SCORE }}/10.0
-          ${{ env.PYLINT_SCORE >= 8.0 && '✨ Great job on code style!' || '💡 There''s room for style improvements. Check the Actions tab for details.' }}
+        #### Style Check
+        Your code style score: ${{ env.PYLINT_SCORE }}/10.0"
+        
+        if (( $(echo "${{ env.PYLINT_SCORE }} >= 8.0" | bc -l) )); then
+          COMMENT="$COMMENT
+        ✨ Great job on code style!"
+        else
+          COMMENT="$COMMENT
+        💡 There's room for style improvements. Check the Actions tab for details."
+        fi
+        
+        if [ -d "tests" ]; then
+          COMMENT="$COMMENT
 
-          ${{ hashFiles('tests/*') && '#### Unit Tests' || '' }}
-          ${{ env.TESTS_FAILED == 'true' && '❌ Some tests are not passing. Check the Actions tab for details.' || (hashFiles('tests/*') && '✅ All tests passed! Great work!' || '') }}
+        #### Unit Tests"
+          if [ "${TESTS_FAILED}" == "true" ]; then
+            COMMENT="$COMMENT
+        ❌ Some tests are not passing. Check the Actions tab for details."
+          else
+            COMMENT="$COMMENT
+        ✅ All tests passed! Great work!"
+          fi
+        fi
+        
+        gh auth token >/dev/null 2>&1 || echo "GITHUB_TOKEN=${{ github.token }}" >> $GITHUB_ENV
+        echo "$COMMENT" | gh issue comment ${{ github.event.number }} --body-file -
+        if [ $? -ne 0 ]; then
+          echo "$COMMENT" | gh pr comment ${{ github.event.pull_request.number }} --body-file -
+          if [ $? -ne 0 ]; then
+            COMMIT_SHA=$(git rev-parse HEAD)
+            echo "$COMMENT" | gh api -X POST /repos/${{ github.repository }}/commits/$COMMIT_SHA/comments --input -
+          fi
+        fi
