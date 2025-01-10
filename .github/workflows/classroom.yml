@@ -21,20 +21,48 @@ jobs:
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
         
     - name: Check code style
+      id: style
+      continue-on-error: true
       run: |
-        pylint --disable=C0111,C0103,C0303,C0301 $(git ls-files '*.py')
+        pylint --disable=C0111,C0103,C0303,C0301 $(git ls-files '*.py') > pylint_results.txt || true
+        echo "PYLINT_SCORE=$(tail -n 2 pylint_results.txt | head -n 1 | grep -oP 'Your code has been rated at \K[0-9.]+' || echo '0.0')" >> $GITHUB_ENV
         
     - name: Run unit tests
       if: hashFiles('tests/*') != ''
+      id: tests
+      continue-on-error: true
       run: |
         pip install pytest
-        pytest tests/ --verbose
-      continue-on-error: true
-      
-    - name: Generate coverage report
-      if: hashFiles('tests/*') != ''
+        pytest tests/ --verbose > pytest_results.txt || echo "TESTS_FAILED=true" >> $GITHUB_ENV
+        
+    - name: Create feedback
       run: |
-        pip install coverage
-        coverage run -m pytest tests/
-        coverage report
-      continue-on-error: true
+        echo "### Python Code Check Results 📝" > feedback.md
+        echo "" >> feedback.md
+        echo "#### Style Check" >> feedback.md
+        if [[ "${{ env.PYLINT_SCORE }}" != "" ]]; then
+          echo "Your code style score: ${{ env.PYLINT_SCORE }}/10.0" >> feedback.md
+          if (( $(echo "${{ env.PYLINT_SCORE }} >= 8.0" | bc -l) )); then
+            echo "✨ Great job on code style!" >> feedback.md
+          else
+            echo "💡 There's room for style improvements. Check the Actions tab for details." >> feedback.md
+          fi
+        else
+          echo "❌ Style check encountered an error" >> feedback.md
+        fi
+        echo "" >> feedback.md
+        if [ -d "tests" ]; then
+          echo "#### Unit Tests" >> feedback.md
+          if [ -f pytest_results.txt ]; then
+            if [ "${TESTS_FAILED}" == "true" ]; then
+              echo "❌ Some tests are not passing. Check the Actions tab for details." >> feedback.md
+            else
+              echo "✅ All tests passed! Great work!" >> feedback.md
+            fi
+          fi
+        fi
+        
+    - name: Create commit comment
+      uses: peter-evans/commit-comment@v2
+      with:
+        body-file: feedback.md
