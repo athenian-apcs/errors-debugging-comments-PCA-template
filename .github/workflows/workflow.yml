@@ -1,49 +1,86 @@
 name: Build and Test
-# only style tests
 
 on:
   push:
     paths:
       - 'src/my_code.py'
 
-jobs:
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
 
+jobs:
   Style_test:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
+
     - uses: actions/setup-python@v5
       with:
         python-version: '3.x'
+
     - name: Install dependencies
       run: |
         python3 -m pip install --upgrade pip
         pip install -r requirements.txt
 
-    - name: Lint student program
+    - name: Run style checks
       id: style
       continue-on-error: true
       run: |
-        flake8 src/my_code.py >> .github/ISSUE_TEMPLATE/style-issues.md
+        echo "# Style Check Results" > style-results.md
+        echo "" >> style-results.md
+
+        EXIT_CODE=0
+
+          if [ -f "src/my_code.py" ]; then
+            echo "## Checking src/my_code.py" >> style-results.md
+            if flake8 "src/my_code.py" >> style-results.md 2>&1; then
+              echo "✅ No style issues found" >> style-results.md
+            else
+              EXIT_CODE=1
+            fi
+            echo "" >> style-results.md
+          fi
 
 
-    - name: Style fail message
+        exit $EXIT_CODE
+
+    - name: Post style check results
+      if: always()
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          let message = '';
+
+          if ('${{ steps.style.outcome }}' === 'failure') {
+            message = fs.readFileSync('style-results.md', 'utf8');
+          } else {
+            message = '# ✅ Style Check Passed\n\nAll Python files meet the style guidelines!';
+          }
+
+          // Post as a comment on the commit
+          if (context.eventName === 'push') {
+            await github.rest.repos.createCommitComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              commit_sha: context.sha,
+              body: message
+            });
+          }
+
+          // Also post on PR if this is a PR
+          if (context.payload.pull_request) {
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: message
+            });
+          }
+
+    - name: Fail if style checks failed
       if: steps.style.outcome == 'failure'
-      uses: machine-learning-apps/pr-comment@1.0.0
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        path: .github/ISSUE_TEMPLATE/style-issues.md
-
-    - name: Success message
-      if: steps.style.outcome == 'success'
-      uses: machine-learning-apps/pr-comment@1.0.0
-      env:
-        GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
-      with:
-        path: .github/ISSUE_TEMPLATE/test-success.md
-
-
-
-
-
+      run: exit 1
